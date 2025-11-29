@@ -20,7 +20,7 @@ export default function HomePage() {
     <div
       className="min-h-screen w-full overflow-hidden relative"
       style={{
-        backgroundImage: "url('/background.gif')",
+        backgroundImage: "url('/background.webp')",
         backgroundSize: 'cover',
         backgroundPosition: 'center',
       }}

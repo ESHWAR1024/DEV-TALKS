@@ -151,7 +151,7 @@ export default function BrowseCommunitiesPage() {
           </button>
           <button
             className="px-3 py-1 bg-[#ffd84d] text-black border-4 border-black pixel-font hover:bg-[#ffe78c]"
-            onClick={() => router.push('/create-community')}
+            onClick={() => router.push('/create_community')}
           >
             CREATE COMMUNITY
           </button>
@@ -162,7 +162,7 @@ export default function BrowseCommunitiesPage() {
       <div className="pt-20 px-8 pb-8 relative z-20">
         <div className="mb-6">
           <h1 className="text-3xl text-white pixel-font drop-shadow-neon mb-2">BROWSE COMMUNITIES</h1>
-          <p className="text-gray-400 text-xs pixel-font">Join communities and start collaborating</p>
+          <p className="text-black-400 text-xs pixel-font">Join communities and start collaborating</p>
           {session && (
             <p className="text-cyan-400 text-xs pixel-font mt-2">Logged in as: {session.user?.name}</p>
           )}

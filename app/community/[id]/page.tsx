@@ -1,0 +1,720 @@
+'use client';
+
+import React, { useState, useEffect } from "react";
+import { useRouter, useParams } from "next/navigation";
+import { useSession } from "next-auth/react";
+
+interface Idea {
+  _id: string;
+  title: string;
+  content: string;
+  userName: string;
+  userId: string;
+  status: 'chat' | 'proceed' | 'hold' | 'discard';
+  votes: Array<{
+    userId: string;
+    userName: string;
+    voteType: 'proceed' | 'hold' | 'discard';
+  }>;
+  replies: Array<{
+    _id: string;
+    userId: string;
+    userName: string;
+    content: string;
+    createdAt: string;
+  }>;
+  createdAt: string;
+  movedAt?: string | null;
+  isEdited?: boolean;
+  editedAt?: string | null;
+}
+
+interface Community {
+  _id: string;
+  name: string;
+  description: string;
+  memberCount: number;
+  members: string[];
+}
+
+export default function CommunityPage() {
+  const router = useRouter();
+  const params = useParams();
+  const { data: session, status } = useSession();
+  const communityId = params.id as string;
+
+  const [community, setCommunity] = useState<Community | null>(null);
+  const [activeTab, setActiveTab] = useState<'chat' | 'proceed' | 'hold' | 'discard'>('chat');
+  const [ideas, setIdeas] = useState<Idea[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showNewIdeaModal, setShowNewIdeaModal] = useState(false);
+  const [newIdeaTitle, setNewIdeaTitle] = useState('');
+  const [newIdeaContent, setNewIdeaContent] = useState('');
+  const [selectedIdea, setSelectedIdea] = useState<Idea | null>(null);
+  const [replyContent, setReplyContent] = useState('');
+  
+  // Edit/Delete states
+  const [editingIdea, setEditingIdea] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editContent, setEditContent] = useState('');
+  const [editingReply, setEditingReply] = useState<string | null>(null);
+  const [editReplyContent, setEditReplyContent] = useState('');
+
+  // Check authentication
+  useEffect(() => {
+    if (status === 'unauthenticated') {
+      router.push('/login');
+    }
+  }, [status, router]);
+
+  // Fetch community and ideas
+  useEffect(() => {
+    if (status === 'authenticated') {
+      fetchCommunity();
+      fetchIdeas();
+    }
+  }, [status, communityId]);
+
+  const fetchCommunity = async () => {
+    try {
+      const response = await fetch(`/api/communities/${communityId}`);
+      const data = await response.json();
+      if (data.success) {
+        setCommunity(data.data);
+      }
+    } catch (error) {
+      console.error('Error fetching community:', error);
+    }
+  };
+
+  const fetchIdeas = async () => {
+    try {
+      const response = await fetch(`/api/ideas?communityId=${communityId}`);
+      const data = await response.json();
+      if (data.success) {
+        setIdeas(data.data);
+      }
+    } catch (error) {
+      console.error('Error fetching ideas:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreateIdea = async () => {
+    if (!newIdeaTitle.trim() || !newIdeaContent.trim()) {
+      alert('Please fill in all fields');
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/ideas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          communityId,
+          title: newIdeaTitle,
+          content: newIdeaContent
+        })
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        setIdeas([data.data, ...ideas]);
+        setShowNewIdeaModal(false);
+        setNewIdeaTitle('');
+        setNewIdeaContent('');
+      } else {
+        alert(data.error || 'Failed to create idea');
+      }
+    } catch (error) {
+      console.error('Error creating idea:', error);
+      alert('Something went wrong');
+    }
+  };
+
+  const handleVote = async (ideaId: string, voteType: 'proceed' | 'hold' | 'discard') => {
+    try {
+      const response = await fetch('/api/ideas/vote', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ideaId, voteType })
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        // Refresh ideas to get updated votes and status
+        fetchIdeas();
+      } else {
+        alert(data.error || 'Failed to vote');
+      }
+    } catch (error) {
+      console.error('Error voting:', error);
+    }
+  };
+
+  const handleReply = async (ideaId: string) => {
+    if (!replyContent.trim()) {
+      alert('Please enter a reply');
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/ideas/reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ideaId, content: replyContent })
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        fetchIdeas();
+        setReplyContent('');
+      } else {
+        alert(data.error || 'Failed to reply');
+      }
+    } catch (error) {
+      console.error('Error replying:', error);
+    }
+  };
+
+  const getUserVote = (idea: Idea) => {
+    // Find vote by comparing userName instead of userId for simplicity
+    return idea.votes.find(v => v.userName === session?.user?.name)?.voteType;
+  };
+
+  const getVoteCounts = (idea: Idea) => {
+    const proceed = idea.votes.filter(v => v.voteType === 'proceed').length;
+    const hold = idea.votes.filter(v => v.voteType === 'hold').length;
+    const discard = idea.votes.filter(v => v.voteType === 'discard').length;
+    return { proceed, hold, discard };
+  };
+
+  const getDaysUntilDeletion = (idea: Idea) => {
+    if (idea.status !== 'discard' || !idea.movedAt) return null;
+    
+    const movedDate = new Date(idea.movedAt);
+    const deleteDate = new Date(movedDate);
+    deleteDate.setDate(deleteDate.getDate() + 7);
+    
+    const now = new Date();
+    const daysLeft = Math.ceil((deleteDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    
+    return daysLeft > 0 ? daysLeft : 0;
+  };
+
+  const handleEditIdea = async (ideaId: string) => {
+    if (!editTitle.trim() || !editContent.trim()) {
+      alert('Please fill in all fields');
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/ideas/edit', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ideaId, title: editTitle, content: editContent })
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        fetchIdeas();
+        setEditingIdea(null);
+        setEditTitle('');
+        setEditContent('');
+      } else {
+        alert(data.error || 'Failed to edit idea');
+      }
+    } catch (error) {
+      console.error('Error editing idea:', error);
+      alert('Something went wrong');
+    }
+  };
+
+  const handleDeleteIdea = async (ideaId: string) => {
+    if (!confirm('Are you sure you want to delete this idea? This cannot be undone.')) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/ideas/delete?ideaId=${ideaId}`, {
+        method: 'DELETE'
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        fetchIdeas();
+      } else {
+        alert(data.error || 'Failed to delete idea');
+      }
+    } catch (error) {
+      console.error('Error deleting idea:', error);
+      alert('Something went wrong');
+    }
+  };
+
+  const handleEditReply = async (ideaId: string, replyId: string) => {
+    if (!editReplyContent.trim()) {
+      alert('Please enter reply content');
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/ideas/reply/edit', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ideaId, replyId, content: editReplyContent })
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        fetchIdeas();
+        setEditingReply(null);
+        setEditReplyContent('');
+      } else {
+        alert(data.error || 'Failed to edit reply');
+      }
+    } catch (error) {
+      console.error('Error editing reply:', error);
+      alert('Something went wrong');
+    }
+  };
+
+  const handleDeleteReply = async (ideaId: string, replyId: string) => {
+    if (!confirm('Are you sure you want to delete this reply?')) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/ideas/reply/delete?ideaId=${ideaId}&replyId=${replyId}`, {
+        method: 'DELETE'
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        fetchIdeas();
+      } else {
+        alert(data.error || 'Failed to delete reply');
+      }
+    } catch (error) {
+      console.error('Error deleting reply:', error);
+      alert('Something went wrong');
+    }
+  };
+
+  const filteredIdeas = ideas.filter(idea => idea.status === activeTab);
+
+  if (status === 'loading' || loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-black">
+        <div className="text-white text-xl pixel-font">SHARE YOUR IDEAS</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen w-full relative overflow-hidden">
+      {/* BACKGROUND IMAGE */}
+      <img 
+        src="/background_9.gif" 
+        alt="background"
+        className="absolute inset-0 w-full h-full object-cover z-0"
+      />
+
+      {/* NAVBAR */}
+      <nav className="relative w-full flex justify-between items-center px-3 py-1 bg-[#1b1b1b] text-white pixel-font border-b-4 border-black shadow-md z-30">
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => router.push('/chats')}
+            className="text-xl hover:text-cyan-400"
+          >
+            ← BACK
+          </button>
+          <div className="text-2xl font-bold">{community?.name || 'SHARE YOUR IDEAS'}</div>
+        </div>
+
+        <div className="flex gap-4 text-sm">
+          <button
+            className="px-3 py-1 bg-[#1b1b1b] text-white border-4 border-black pixel-font hover:bg-[#333]"
+            onClick={() => router.push('/home')}
+          >
+            HOME
+          </button>
+        </div>
+      </nav>
+
+      {/* MAIN CONTENT */}
+      <div className="relative z-20 p-8">
+        {/* COMMUNITY INFO */}
+        <div className="bg-[#111111]/90 border-4 border-white rounded-lg p-6 mb-6">
+          <h1 className="text-3xl text-white pixel-font drop-shadow-neon mb-2">{community?.name}</h1>
+          <p className="text-gray-400 text-sm mb-3">{community?.description}</p>
+          <div className="flex gap-4 text-xs text-gray-400 pixel-font">
+            <span>👥 {community?.memberCount} members</span>
+            <span>👤 {session?.user?.name}</span>
+          </div>
+        </div>
+
+        {/* TABS */}
+        <div className="flex gap-2 mb-6">
+          <button
+            onClick={() => setActiveTab('chat')}
+            className={`px-6 py-3 pixel-font border-4 rounded-lg transition-all ${
+              activeTab === 'chat'
+                ? 'bg-cyan-600 text-white border-cyan-400'
+                : 'bg-[#1b1b1b] text-gray-400 border-gray-700 hover:border-gray-500'
+            }`}
+          >
+            💬 CHAT
+          </button>
+          <button
+            onClick={() => setActiveTab('proceed')}
+            className={`px-6 py-3 pixel-font border-4 rounded-lg transition-all ${
+              activeTab === 'proceed'
+                ? 'bg-green-600 text-white border-green-400'
+                : 'bg-[#1b1b1b] text-gray-400 border-gray-700 hover:border-gray-500'
+            }`}
+          >
+            ✅ PROCEED
+          </button>
+          <button
+            onClick={() => setActiveTab('hold')}
+            className={`px-6 py-3 pixel-font border-4 rounded-lg transition-all ${
+              activeTab === 'hold'
+                ? 'bg-yellow-600 text-white border-yellow-400'
+                : 'bg-[#1b1b1b] text-gray-400 border-gray-700 hover:border-gray-500'
+            }`}
+          >
+            ⏸️ HOLD
+          </button>
+          <button
+            onClick={() => setActiveTab('discard')}
+            className={`px-6 py-3 pixel-font border-4 rounded-lg transition-all ${
+              activeTab === 'discard'
+                ? 'bg-red-600 text-white border-red-400'
+                : 'bg-[#1b1b1b] text-gray-400 border-gray-700 hover:border-gray-500'
+            }`}
+          >
+            ❌ DISCARD
+          </button>
+
+          {activeTab === 'chat' && (
+            <button
+              onClick={() => setShowNewIdeaModal(true)}
+              className="ml-auto px-6 py-3 bg-[#ffd84d] text-black pixel-font border-4 border-black rounded-lg hover:bg-[#ffe78c]"
+            >
+              + NEW IDEA
+            </button>
+          )}
+        </div>
+
+        {/* IDEAS LIST */}
+        <div className="space-y-4">
+          {filteredIdeas.length === 0 ? (
+            <div className="bg-[#111111]/90 border-4 border-gray-700 rounded-lg p-8 text-center">
+              <p className="text-gray-400 pixel-font">
+                {activeTab === 'chat' ? 'No ideas yet. Create one!' : `No ideas in ${activeTab.toUpperCase()}`}
+              </p>
+            </div>
+          ) : (
+            filteredIdeas.map((idea) => {
+              const userVote = getUserVote(idea);
+              const voteCounts = getVoteCounts(idea);
+              const daysUntilDeletion = getDaysUntilDeletion(idea);
+
+              return (
+                <div key={idea._id} className="bg-[#111111]/90 border-4 border-white rounded-lg p-6">
+                  {editingIdea === idea._id ? (
+                    // EDIT MODE
+                    <div>
+                      <input
+                        type="text"
+                        value={editTitle}
+                        onChange={(e) => setEditTitle(e.target.value)}
+                        className="w-full bg-[#2a2a2a] text-white text-lg px-4 py-2 mb-3 border-2 border-gray-600 rounded pixel-font focus:outline-none focus:border-cyan-400"
+                        placeholder="Title..."
+                      />
+                      <textarea
+                        value={editContent}
+                        onChange={(e) => setEditContent(e.target.value)}
+                        rows={4}
+                        className="w-full bg-[#2a2a2a] text-white text-sm px-4 py-2 mb-3 border-2 border-gray-600 rounded focus:outline-none focus:border-cyan-400"
+                        placeholder="Content..."
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleEditIdea(idea._id)}
+                          className="px-4 py-2 bg-green-600 text-white pixel-font text-xs border-2 border-green-400 rounded hover:bg-green-500"
+                        >
+                          SAVE
+                        </button>
+                        <button
+                          onClick={() => {
+                            setEditingIdea(null);
+                            setEditTitle('');
+                            setEditContent('');
+                          }}
+                          className="px-4 py-2 bg-gray-700 text-white pixel-font text-xs border-2 border-gray-600 rounded hover:bg-gray-600"
+                        >
+                          CANCEL
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    // NORMAL VIEW
+                    <>
+                      {/* IDEA HEADER */}
+                      <div className="flex justify-between items-start mb-4">
+                        <div className="flex-1">
+                          <h3 className="text-xl text-white pixel-font mb-2">
+                            {idea.title}
+                            {idea.isEdited && (
+                              <span className="text-gray-500 text-xs ml-2">(edited)</span>
+                            )}
+                          </h3>
+                          <p className="text-gray-400 text-xs pixel-font">
+                            by {idea.userName} • {new Date(idea.createdAt).toLocaleDateString()}
+                          </p>
+                        </div>
+                        <div className="flex flex-col items-end gap-2">
+                          {idea.status !== 'chat' && (
+                            <span className={`px-3 py-1 pixel-font text-xs border-2 rounded ${
+                              idea.status === 'proceed' ? 'bg-green-600 border-green-400' :
+                              idea.status === 'hold' ? 'bg-yellow-600 border-yellow-400' :
+                              'bg-red-600 border-red-400'
+                            } text-white`}>
+                              {idea.status.toUpperCase()}
+                            </span>
+                          )}
+                          {daysUntilDeletion !== null && (
+                            <span className="px-2 py-1 bg-red-900 border-2 border-red-700 rounded text-xs pixel-font text-red-300">
+                              🗑️ Deletes in {daysUntilDeletion}d
+                            </span>
+                          )}
+                          {/* Edit/Delete buttons for author */}
+                          {idea.userName === session?.user?.name && idea.status === 'chat' && (
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => {
+                                  setEditingIdea(idea._id);
+                                  setEditTitle(idea.title);
+                                  setEditContent(idea.content);
+                                }}
+                                className="px-2 py-1 bg-blue-600 text-white pixel-font text-xs border-2 border-blue-400 rounded hover:bg-blue-500"
+                              >
+                                ✏️ EDIT
+                              </button>
+                              <button
+                                onClick={() => handleDeleteIdea(idea._id)}
+                                className="px-2 py-1 bg-red-600 text-white pixel-font text-xs border-2 border-red-400 rounded hover:bg-red-500"
+                              >
+                                🗑️ DELETE
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* IDEA CONTENT */}
+                      <p className="text-white text-sm mb-4">{idea.content}</p>
+
+                      {/* VOTING BUTTONS - Only show in chat tab */}
+                      {activeTab === 'chat' && (
+                        <div className="flex gap-3 mb-4">
+                          <button
+                            onClick={() => handleVote(idea._id, 'proceed')}
+                            className={`flex-1 px-4 py-2 pixel-font text-xs border-2 rounded transition-all ${
+                              userVote === 'proceed'
+                                ? 'bg-green-600 border-green-400 text-white'
+                                : 'bg-[#1b1b1b] border-gray-600 text-gray-400 hover:border-green-400'
+                            }`}
+                          >
+                            ✅ PROCEED ({voteCounts.proceed}/{community?.memberCount})
+                          </button>
+                          <button
+                            onClick={() => handleVote(idea._id, 'hold')}
+                            className={`flex-1 px-4 py-2 pixel-font text-xs border-2 rounded transition-all ${
+                              userVote === 'hold'
+                                ? 'bg-yellow-600 border-yellow-400 text-white'
+                                : 'bg-[#1b1b1b] border-gray-600 text-gray-400 hover:border-yellow-400'
+                            }`}
+                          >
+                            ⏸️ HOLD ({voteCounts.hold}/{community?.memberCount})
+                          </button>
+                          <button
+                            onClick={() => handleVote(idea._id, 'discard')}
+                            className={`flex-1 px-4 py-2 pixel-font text-xs border-2 rounded transition-all ${
+                              userVote === 'discard'
+                                ? 'bg-red-600 border-red-400 text-white'
+                                : 'bg-[#1b1b1b] border-gray-600 text-gray-400 hover:border-red-400'
+                            }`}
+                          >
+                            ❌ DISCARD ({voteCounts.discard}/{community?.memberCount})
+                          </button>
+                        </div>
+                      )}
+
+                      {/* REPLIES */}
+                      {idea.replies.length > 0 && (
+                        <div className="border-t-2 border-gray-700 pt-4 mt-4 space-y-3">
+                          {idea.replies.map((reply) => (
+                            <div key={reply._id}>
+                              {editingReply === reply._id ? (
+                                // EDIT REPLY MODE
+                                <div className="bg-[#1b1b1b] rounded p-3">
+                                  <textarea
+                                    value={editReplyContent}
+                                    onChange={(e) => setEditReplyContent(e.target.value)}
+                                    rows={2}
+                                    className="w-full bg-[#2a2a2a] text-white text-sm px-3 py-2 mb-2 border-2 border-gray-600 rounded focus:outline-none focus:border-cyan-400"
+                                  />
+                                  <div className="flex gap-2">
+                                    <button
+                                      onClick={() => handleEditReply(idea._id, reply._id)}
+                                      className="px-3 py-1 bg-green-600 text-white pixel-font text-xs border-2 border-green-400 rounded hover:bg-green-500"
+                                    >
+                                      SAVE
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setEditingReply(null);
+                                        setEditReplyContent('');
+                                      }}
+                                      className="px-3 py-1 bg-gray-700 text-white pixel-font text-xs border-2 border-gray-600 rounded hover:bg-gray-600"
+                                    >
+                                      CANCEL
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                // NORMAL REPLY VIEW
+                                <div className="bg-[#1b1b1b] rounded p-3">
+                                  <div className="flex justify-between items-start mb-2">
+                                    <p className="text-cyan-400 text-xs pixel-font">{reply.userName}</p>
+                                    {reply.userName === session?.user?.name && activeTab === 'chat' && (
+                                      <div className="flex gap-2">
+                                        <button
+                                          onClick={() => {
+                                            setEditingReply(reply._id);
+                                            setEditReplyContent(reply.content);
+                                          }}
+                                          className="text-blue-400 text-xs hover:text-blue-300"
+                                        >
+                                          ✏️
+                                        </button>
+                                        <button
+                                          onClick={() => handleDeleteReply(idea._id, reply._id)}
+                                          className="text-red-400 text-xs hover:text-red-300"
+                                        >
+                                          🗑️
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                  <p className="text-gray-300 text-sm">{reply.content}</p>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* REPLY INPUT - Only show in chat tab */}
+                      {activeTab === 'chat' && (
+                        <div className="mt-4 flex gap-2">
+                          <input
+                            type="text"
+                            placeholder="Add a reply..."
+                            value={selectedIdea?._id === idea._id ? replyContent : ''}
+                            onChange={(e) => {
+                              setSelectedIdea(idea);
+                              setReplyContent(e.target.value);
+                            }}
+                            onKeyPress={(e) => {
+                              if (e.key === 'Enter') {
+                                handleReply(idea._id);
+                              }
+                            }}
+                            className="flex-1 bg-[#2a2a2a] text-white text-sm px-4 py-2 border-2 border-gray-600 rounded pixel-font focus:outline-none focus:border-cyan-400"
+                          />
+                          <button
+                            onClick={() => handleReply(idea._id)}
+                            className="px-4 py-2 bg-cyan-600 text-white pixel-font text-xs border-2 border-cyan-400 rounded hover:bg-cyan-500"
+                          >
+                            REPLY
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      {/* NEW IDEA MODAL */}
+      {showNewIdeaModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#1a1a1a] border-4 border-white rounded-lg p-8 max-w-2xl w-full pixel-font">
+            <h2 className="text-2xl text-white mb-6 drop-shadow-neon">CREATE NEW IDEA</h2>
+            
+            <div className="mb-4">
+              <label className="block text-white text-sm mb-2">TITLE:</label>
+              <input
+                type="text"
+                value={newIdeaTitle}
+                onChange={(e) => setNewIdeaTitle(e.target.value)}
+                className="w-full bg-[#2a2a2a] text-white text-sm px-4 py-3 border-2 border-gray-600 rounded focus:outline-none focus:border-cyan-400"
+                placeholder="Enter idea title..."
+              />
+            </div>
+
+            <div className="mb-6">
+              <label className="block text-white text-sm mb-2">DESCRIPTION:</label>
+              <textarea
+                value={newIdeaContent}
+                onChange={(e) => setNewIdeaContent(e.target.value)}
+                rows={6}
+                className="w-full bg-[#2a2a2a] text-white text-sm px-4 py-3 border-2 border-gray-600 rounded focus:outline-none focus:border-cyan-400"
+                placeholder="Describe your idea..."
+              />
+            </div>
+
+            <div className="flex gap-4">
+              <button
+                onClick={() => {
+                  setShowNewIdeaModal(false);
+                  setNewIdeaTitle('');
+                  setNewIdeaContent('');
+                }}
+                className="flex-1 px-6 py-3 bg-gray-700 text-white pixel-font border-4 border-gray-600 rounded-lg hover:bg-gray-600"
+              >
+                CANCEL
+              </button>
+              <button
+                onClick={handleCreateIdea}
+                className="flex-1 px-6 py-3 bg-cyan-600 text-white pixel-font border-4 border-cyan-400 rounded-lg hover:bg-cyan-500"
+              >
+                CREATE
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style jsx>{`
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+        .pixel-font {
+          font-family: 'Press Start 2P', cursive;
+        }
+
+        .drop-shadow-neon {
+          text-shadow: 0 0 8px rgba(0, 255, 255, 0.8), 0 0 16px rgba(0, 255, 255, 0.5);
+        }
+      `}</style>
+    </div>
+  );
+}
