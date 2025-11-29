@@ -13,30 +13,30 @@ export async function POST(request: NextRequest) {
     // Get current user from NextAuth session
     const session = await getServerSession(authOptions);
 
-    console.log('🔍 Session check:', session);
-    console.log('🔍 User:', session?.user);
-    console.log('🔍 User name:', session?.user?.name);
-
-
-
-
+    console.log('🔍 Full Session:', JSON.stringify(session, null, 2));
     
-    if (!session || !session.user) {
+    if (!session || !session.user || !session.user.name) {
+      console.log('❌ Authentication failed - No valid session');
       return NextResponse.json(
-        { success: false, error: 'You must be logged in to join a community' },
+        { success: false, error: 'You must be logged in to join a community. Please log in again.' },
         { status: 401 }
       );
     }
+
+    console.log('✅ User authenticated:', session.user.name);
 
     // Get user from database using name from session
     const user = await User.findOne({ name: session.user.name });
     
     if (!user) {
+      console.log('❌ User not found in database:', session.user.name);
       return NextResponse.json(
-        { success: false, error: 'User not found' },
+        { success: false, error: 'User not found in database' },
         { status: 404 }
       );
     }
+
+    console.log('✅ User found in DB:', user._id);
     
     const body = await request.json();
     const { communityId, password } = body;
@@ -58,14 +58,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    console.log('✅ Community found:', community.name);
+
     // Verify password
     const isPasswordValid = await bcrypt.compare(password, community.password);
 
     if (!isPasswordValid) {
+      console.log('❌ Invalid password');
       return NextResponse.json(
         { success: false, error: 'Invalid password' },
         { status: 401 }
       );
+    }
+
+    console.log('✅ Password valid');
+
+    // Initialize members array if it doesn't exist
+    if (!community.members) {
+      community.members = [];
     }
 
     // Check if user is already a member
@@ -85,11 +95,20 @@ export async function POST(request: NextRequest) {
     community.memberCount = community.members.length;
     await community.save();
 
+    console.log('✅ User added to community');
+
+    // Initialize user.communities if it doesn't exist
+    if (!user.communities) {
+      user.communities = [];
+    }
+
     // Add community to user's communities list
     if (!user.communities.includes(communityId)) {
       user.communities.push(communityId);
       await user.save();
     }
+
+    console.log('✅ Community added to user profile');
 
     return NextResponse.json(
       { 
@@ -106,9 +125,9 @@ export async function POST(request: NextRequest) {
     );
 
   } catch (error: any) {
-    console.error('Error joining community:', error);
+    console.error('❌ Error joining community:', error);
     return NextResponse.json(
-      { success: false, error: error.message },
+      { success: false, error: error.message || 'An error occurred while joining the community' },
       { status: 500 }
     );
   }

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 
 interface Community {
   _id: string;
@@ -13,6 +14,7 @@ interface Community {
 
 export default function BrowseCommunitiesPage() {
   const router = useRouter();
+  const { data: session, status } = useSession();
   const [communities, setCommunities] = useState<Community[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCommunity, setSelectedCommunity] = useState<Community | null>(null);
@@ -21,10 +23,21 @@ export default function BrowseCommunitiesPage() {
   const [error, setError] = useState('');
   const [isJoining, setIsJoining] = useState(false);
 
+  // Check authentication
+  useEffect(() => {
+    if (status === 'loading') return;
+    
+    if (status === 'unauthenticated') {
+      router.push('/login');
+    }
+  }, [status, router]);
+
   // Fetch communities on load
   useEffect(() => {
-    fetchCommunities();
-  }, []);
+    if (status === 'authenticated') {
+      fetchCommunities();
+    }
+  }, [status]);
 
   const fetchCommunities = async () => {
     try {
@@ -61,10 +74,19 @@ export default function BrowseCommunitiesPage() {
       return;
     }
 
+    if (!session) {
+      setError('You must be logged in. Redirecting...');
+      setTimeout(() => router.push('/login'), 1500);
+      return;
+    }
+
     setIsJoining(true);
     setError('');
 
     try {
+      console.log('Attempting to join community:', selectedCommunity?._id);
+      console.log('Current session:', session);
+
       const response = await fetch('/api/communities/join', {
         method: 'POST',
         headers: {
@@ -77,11 +99,12 @@ export default function BrowseCommunitiesPage() {
       });
 
       const data = await response.json();
+      console.log('Join response:', data);
 
       if (data.success) {
         alert('Successfully joined community! 🎉');
         handleCloseModal();
-        // Here you would typically redirect to the community chat
+        fetchCommunities(); // Refresh the list
         router.push('/chats');
       } else {
         setError(data.error || 'Failed to join community');
@@ -93,6 +116,15 @@ export default function BrowseCommunitiesPage() {
       setIsJoining(false);
     }
   };
+
+  // Show loading while checking auth
+  if (status === 'loading' || status === 'unauthenticated') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-black">
+        <div className="text-white text-xl pixel-font">LOADING...</div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -130,7 +162,10 @@ export default function BrowseCommunitiesPage() {
       <div className="pt-20 px-8 pb-8 relative z-20">
         <div className="mb-6">
           <h1 className="text-3xl text-white pixel-font drop-shadow-neon mb-2">BROWSE COMMUNITIES</h1>
-          <p className="text-#28282B-400 text-xs pixel-font">Join communities and start collaborating</p>
+          <p className="text-gray-400 text-xs pixel-font">Join communities and start collaborating</p>
+          {session && (
+            <p className="text-cyan-400 text-xs pixel-font mt-2">Logged in as: {session.user?.name}</p>
+          )}
         </div>
 
         {loading ? (
