@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { connectDB } from '../../lib/mongodb';
-import Community from '../../models/community';
-import bcrypt from 'bcryptjs';
+import { connectDB } from '@/app/lib/mongodb';
+import Community from '@/app/models/community';
+import User from '@/app/models/User';
+import bcryptjs from 'bcryptjs';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '../auth/[...nextauth]/route';
 
 // GET - Fetch all communities
 export async function GET() {
@@ -29,6 +32,26 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     await connectDB();
+    
+    // Get current user from session
+    const session = await getServerSession(authOptions);
+    
+    if (!session || !session.user) {
+      return NextResponse.json(
+        { success: false, error: 'You must be logged in to create a community' },
+        { status: 401 }
+      );
+    }
+    
+    // Get user from database
+    const user = await User.findOne({ name: session.user.name });
+    
+    if (!user) {
+      return NextResponse.json(
+        { success: false, error: 'User not found' },
+        { status: 404 }
+      );
+    }
     
     const body = await request.json();
     const { name, description, password } = body;
@@ -61,15 +84,27 @@ export async function POST(request: NextRequest) {
     }
 
     // Hash the password
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedPassword = await bcryptjs.hash(password, 10);
 
-    // Create community
+    // Create community with creator info and add creator as first member
     const community = await Community.create({
       name,
       description,
       password: hashedPassword,
-      memberCount: 0,
+      creatorId: user._id,
+      creatorName: user.name,
+      members: [user._id], // Add creator as first member
+      memberCount: 1,
     });
+
+    // Add community to user's communities list
+    if (!user.communities) {
+      user.communities = [];
+    }
+    if (!user.communities.includes(community._id)) {
+      user.communities.push(community._id);
+      await user.save();
+    }
 
     // Return without password
     const communityData = {
@@ -77,6 +112,7 @@ export async function POST(request: NextRequest) {
       name: community.name,
       description: community.description,
       memberCount: community.memberCount,
+      creatorName: community.creatorName,
       createdAt: community.createdAt,
     };
 

@@ -1,94 +1,76 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { connectDB } from '@/app/lib/mongodb';
 import Community from '@/app/models/community';
-import bcryptjs from 'bcryptjs';
+import User from '@/app/models/User';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 
-// GET - Fetch all communities
-export async function GET() {
+export async function GET(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) {
   try {
     await connectDB();
     
-    const communities = await Community.find({})
-      .select('-password') // Don't send passwords to frontend
-      .sort({ createdAt: -1 }); // Newest first
+    const session = await getServerSession(authOptions);
     
-    return NextResponse.json({ 
-      success: true, 
-      data: communities 
-    }, { status: 200 });
-    
-  } catch (error: any) {
-    return NextResponse.json({ 
-      success: false, 
-      error: error.message 
-    }, { status: 500 });
-  }
-}
-
-// POST - Create new community
-export async function POST(request: NextRequest) {
-  try {
-    await connectDB();
-    
-    const body = await request.json();
-    const { name, description, password } = body;
-
-    // Validation
-    if (!name || !description || !password) {
+    if (!session || !session.user) {
       return NextResponse.json(
-        { success: false, error: 'All fields are required' },
-        { status: 400 }
+        { success: false, error: 'You must be logged in' },
+        { status: 401 }
       );
     }
-
-    if (password.length < 6) {
+    
+    // Await the params in Next.js 15+
+    const { id: communityId } = await context.params;
+    
+    console.log('Fetching community:', communityId);
+    
+    const community = await Community.findById(communityId)
+      .select('-password')
+      .populate('members', 'name');
+    
+    if (!community) {
       return NextResponse.json(
-        { success: false, error: 'Password must be at least 6 characters' },
-        { status: 400 }
+        { success: false, error: 'Community not found' },
+        { status: 404 }
       );
     }
-
-    // Check if community name already exists
-    const existingCommunity = await Community.findOne({ 
-      name: { $regex: new RegExp(`^${name}$`, 'i') } // Case insensitive
-    });
-
-    if (existingCommunity) {
+    
+    // Get current user
+    const user = await User.findOne({ name: session.user.name });
+    
+    if (!user) {
       return NextResponse.json(
-        { success: false, error: 'Community name already exists' },
-        { status: 400 }
+        { success: false, error: 'User not found' },
+        { status: 404 }
       );
     }
-
-    // Hash the password
-    const hashedPassword = await bcryptjs.hash(password, 10);
-
-    // Create community
-    const community = await Community.create({
-      name,
-      description,
-      password: hashedPassword,
-      memberCount: 0,
-    });
-
-    // Return without password
+    
+    // Check if current user is admin (creator)
+    const isAdmin = community.creatorId?.toString() === user._id.toString();
+    
     const communityData = {
       _id: community._id,
       name: community.name,
       description: community.description,
       memberCount: community.memberCount,
-      createdAt: community.createdAt,
+      members: community.members,
+      creatorName: community.creatorName,
+      isAdmin: isAdmin,
     };
-
+    
+    console.log('Community data prepared:', communityData.name);
+    
     return NextResponse.json(
-      { success: true, data: communityData, message: 'Community created successfully!' },
-      { status: 201 }
+      { success: true, data: communityData },
+      { status: 200 }
     );
-
+    
   } catch (error: any) {
-    console.error('Error creating community:', error);
+    console.error('Error fetching community:', error);
     return NextResponse.json(
-      { success: false, error: error.message || 'Failed to create community' },
+      { success: false, error: error.message || 'Failed to fetch community' },
       { status: 500 }
     );
   }

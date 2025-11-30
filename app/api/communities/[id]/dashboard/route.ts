@@ -1,17 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { connectDB } from '../../../../lib/mongodb';
-import Community from '../../../../models/community';
-import Idea from '../../../../models/idea';
-import User from '../../../../models/User';
+import { connectDB } from '@/app/lib/mongodb';
+import Community from '@/app/models/community';
+import Idea from '@/app/models/idea';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
     await connectDB();
     
-    const communityId = params.id;
+    // Await the params in Next.js 15+
+    const { id: communityId } = await context.params;
+    
+    console.log('Dashboard route called for community:', communityId);
     
     // Get community
     const community = await Community.findById(communityId);
@@ -25,6 +27,8 @@ export async function GET(
     
     // Get all ideas for this community
     const ideas = await Idea.find({ communityId });
+    
+    console.log(`Found ${ideas.length} ideas for community ${communityId}`);
     
     // Calculate statistics
     const totalIdeas = ideas.length;
@@ -129,6 +133,8 @@ export async function GET(
       activityByDay,
     };
     
+    console.log('Dashboard data prepared successfully');
+    
     return NextResponse.json(
       { success: true, data: dashboard },
       { status: 200 }
@@ -137,7 +143,7 @@ export async function GET(
   } catch (error: any) {
     console.error('Error fetching dashboard:', error);
     return NextResponse.json(
-      { success: false, error: error.message },
+      { success: false, error: error.message || 'Failed to fetch dashboard' },
       { status: 500 }
     );
   }

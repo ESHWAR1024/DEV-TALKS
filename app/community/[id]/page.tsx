@@ -456,7 +456,7 @@ export default function CommunityPage() {
     <div className="min-h-screen w-full relative overflow-hidden">
       {/* BACKGROUND IMAGE */}
       <img 
-        src="/background_7.gif" 
+        src="/background_9.gif" 
         alt="background"
         className="absolute inset-0 w-full h-full object-cover z-0"
       />

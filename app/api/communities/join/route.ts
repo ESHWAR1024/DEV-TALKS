@@ -1,16 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { connectDB } from '../../../lib/mongodb';
-import Community from '../../../models/community';
-import User from '../../../models/User';
-import bcrypt from 'bcryptjs';
-import { authOptions } from '../../auth/[...nextauth]/route';
+import { connectDB } from '@/app/lib/mongodb';
+import Community from '@/app/models/community';
+import User from '@/app/models/User';
+import bcryptjs from 'bcryptjs';
+import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { getServerSession } from 'next-auth';
 
 export async function POST(request: NextRequest) {
   try {
     await connectDB();
     
-    // Get current user from NextAuth session
     const session = await getServerSession(authOptions);
 
     console.log('🔍 Full Session:', JSON.stringify(session, null, 2));
@@ -25,7 +24,6 @@ export async function POST(request: NextRequest) {
 
     console.log('✅ User authenticated:', session.user.name);
 
-    // Get user from database using name from session
     const user = await User.findOne({ name: session.user.name });
     
     if (!user) {
@@ -48,7 +46,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Find community
     const community = await Community.findById(communityId);
 
     if (!community) {
@@ -60,8 +57,27 @@ export async function POST(request: NextRequest) {
 
     console.log('✅ Community found:', community.name);
 
-    // Verify password
-    const isPasswordValid = await bcrypt.compare(password, community.password);
+    // FIX: If community doesn't have creatorId/creatorName, set the first member as creator
+    if (!community.creatorId || !community.creatorName) {
+      console.log('⚠️ Community missing creator info, fixing...');
+      if (community.members && community.members.length > 0) {
+        const firstMember = await User.findById(community.members[0]);
+        if (firstMember) {
+          community.creatorId = firstMember._id;
+          community.creatorName = firstMember.name;
+          await community.save();
+          console.log('✅ Creator info fixed');
+        }
+      } else {
+        // If no members yet, set current user as creator
+        community.creatorId = user._id;
+        community.creatorName = user.name;
+        await community.save();
+        console.log('✅ Set current user as creator');
+      }
+    }
+
+    const isPasswordValid = await bcryptjs.compare(password, community.password);
 
     if (!isPasswordValid) {
       console.log('❌ Invalid password');
@@ -73,12 +89,10 @@ export async function POST(request: NextRequest) {
 
     console.log('✅ Password valid');
 
-    // Initialize members array if it doesn't exist
     if (!community.members) {
       community.members = [];
     }
 
-    // Check if user is already a member
     const isAlreadyMember = community.members.some(
       (member: any) => member.toString() === user._id.toString()
     );
@@ -90,19 +104,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Add user to community members
     community.members.push(user._id);
     community.memberCount = community.members.length;
     await community.save();
 
     console.log('✅ User added to community');
 
-    // Initialize user.communities if it doesn't exist
     if (!user.communities) {
       user.communities = [];
     }
 
-    // Add community to user's communities list
     if (!user.communities.includes(communityId)) {
       user.communities.push(communityId);
       await user.save();

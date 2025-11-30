@@ -27,6 +27,7 @@ export const authOptions = {
           user = await User.create({
             name,
             password: hashed,
+            communities: [], // Initialize empty communities array
           });
           return { 
             id: user._id.toString(), 
