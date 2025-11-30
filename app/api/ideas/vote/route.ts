@@ -5,6 +5,7 @@ import User from '../../../models/User';
 import Community from '../../../models/community';
 import { authOptions } from '../../auth/[...nextauth]/route';
 import { getServerSession } from 'next-auth';
+import { createVoteNotification, createIdeaMovedNotification } from '../../../lib/notification';
 
 export async function POST(request: NextRequest) {
   try {
@@ -89,19 +90,63 @@ export async function POST(request: NextRequest) {
     
     console.log(`Vote counts - Proceed: ${proceedVotes}, Hold: ${holdVotes}, Discard: ${discardVotes}, Total Members: ${totalMembers}`);
     
+    // Create vote notification for idea author
+    await createVoteNotification(
+      idea.userId.toString(),
+      idea.userName,
+      idea._id.toString(),
+      idea.title,
+      community._id.toString(),
+      community.name,
+      user._id.toString(),
+      user.name,
+      voteType
+    );
+    
     // If everyone voted the same, move the idea
     if (proceedVotes === totalMembers) {
       idea.status = 'proceed';
       idea.movedAt = new Date();
       console.log(`✅ Idea "${idea.title}" moved to PROCEED`);
+      
+      // Notify author their idea moved
+      await createIdeaMovedNotification(
+        idea.userId.toString(),
+        idea.userName,
+        idea._id.toString(),
+        idea.title,
+        community._id.toString(),
+        community.name,
+        'proceed'
+      );
     } else if (holdVotes === totalMembers) {
       idea.status = 'hold';
       idea.movedAt = new Date();
       console.log(`⏸️ Idea "${idea.title}" moved to HOLD`);
+      
+      await createIdeaMovedNotification(
+        idea.userId.toString(),
+        idea.userName,
+        idea._id.toString(),
+        idea.title,
+        community._id.toString(),
+        community.name,
+        'hold'
+      );
     } else if (discardVotes === totalMembers) {
       idea.status = 'discard';
       idea.movedAt = new Date();
       console.log(`❌ Idea "${idea.title}" moved to DISCARD`);
+      
+      await createIdeaMovedNotification(
+        idea.userId.toString(),
+        idea.userName,
+        idea._id.toString(),
+        idea.title,
+        community._id.toString(),
+        community.name,
+        'discard'
+      );
     }
     
     await idea.save();

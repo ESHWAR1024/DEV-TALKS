@@ -1,11 +1,11 @@
-
-
 import { NextRequest, NextResponse } from 'next/server';
 import { connectDB } from '../../../lib/mongodb';
 import Idea from '../../../models/idea';
 import User from '../../../models/User';
+import Community from '../../../models/community';
 import { authOptions } from '../../auth/[...nextauth]/route';
 import { getServerSession } from 'next-auth';
+import { createReplyNotification } from '../../../lib/notification';
 
 export async function POST(request: NextRequest) {
   try {
@@ -48,6 +48,16 @@ export async function POST(request: NextRequest) {
       );
     }
     
+    // Get community for notification
+    const community = await Community.findById(idea.communityId);
+    
+    if (!community) {
+      return NextResponse.json(
+        { success: false, error: 'Community not found' },
+        { status: 404 }
+      );
+    }
+    
     // Add reply
     idea.replies.push({
       userId: user._id,
@@ -57,6 +67,20 @@ export async function POST(request: NextRequest) {
     });
     
     await idea.save();
+    
+    // Create notification for idea author (if not replying to own idea)
+    if (idea.userId.toString() !== user._id.toString()) {
+      await createReplyNotification(
+        idea.userId.toString(),
+        idea.userName,
+        idea._id.toString(),
+        idea.title,
+        community._id.toString(),
+        community.name,
+        user._id.toString(),
+        user.name
+      );
+    }
     
     return NextResponse.json(
       { success: true, data: idea },

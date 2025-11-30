@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
+import NotificationBell from "@/app/components/NotificationBell";
 
 interface Community {
   _id: string;
@@ -103,7 +104,8 @@ export default function ChatsPage() {
       >
         <div className="text-2xl font-bold">DEV TALKS</div>
 
-        <div className="flex gap-4 text-sm">
+        <div className="flex items-center gap-4 text-sm">
+          <NotificationBell />
           <button
             className="px-3 py-1 bg-[#1b1b1b] text-white border-4 border-black pixel-font hover:bg-[#333]"
             onClick={() => router.push('/home')}

@@ -1,43 +1,43 @@
-import mongoose, { Schema, models } from 'mongoose';
+import mongoose, { Schema, models } from "mongoose";
 
-const communitySchema = new Schema(
-  {
-    name: {
-      type: String,
-      required: [true, 'Community name is required'],
-      trim: true,
-      unique: true,
-    },
-    description: {
-      type: String,
-      required: [true, 'Description is required'],
-      trim: true,
-    },
-    password: {
-      type: String,
-      required: [true, 'Password is required'],
-      minlength: [6, 'Password must be at least 6 characters'],
-    },
-    members: [
-      {
-        type: Schema.Types.ObjectId,
-        ref: 'User',
-      },
-    ],
-    createdBy: {
-      type: String,
-      required: false, // Make optional for now
-    },
-    memberCount: {
-      type: Number,
-      default: 0,
-    },
+const CommunitySchema = new Schema({
+  name: {
+    type: String,
+    required: true,
+    unique: true,
   },
-  {
-    timestamps: true, // Adds createdAt and updatedAt
-  }
-);
+  description: {
+    type: String,
+    required: true,
+  },
+  password: {
+    type: String,
+    required: true,
+  },
+  creatorId: {
+    type: Schema.Types.ObjectId,
+    ref: 'User',
+    required: true,
+  },
+  creatorName: {
+    type: String,
+    required: true,
+  },
+  members: [{
+    type: Schema.Types.ObjectId,
+    ref: 'User',
+  }],
+  memberCount: {
+    type: Number,
+    default: 0,
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now,
+  },
+}, {
+  timestamps: true
+});
 
-const Community = models.Community || mongoose.model('Community', communitySchema);
-
+const Community = models.Community || mongoose.model("Community", CommunitySchema);
 export default Community;

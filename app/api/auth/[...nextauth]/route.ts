@@ -1,32 +1,8 @@
 import NextAuth from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
-import bcrypt from "bcrypt";
+import bcryptjs from "bcryptjs";
 import { connectDB } from "@/app/lib/mongodb";
 import User from "@/app/models/User";
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 export const authOptions = {
   providers: [
@@ -36,25 +12,37 @@ export const authOptions = {
         name: { label: "Name", type: "text" },
         password: { label: "Password", type: "password" }
       },
-      async authorize(credentials: any) {
+      async authorize(credentials) {
+        if (!credentials?.name || !credentials?.password) {
+          return null;
+        }
+
         await connectDB();
         const { name, password } = credentials;
 
         let user = await User.findOne({ name });
 
         if (!user) {
-          const hashed = await bcrypt.hash(password, 10);
+          const hashed = await bcryptjs.hash(password, 10);
           user = await User.create({
             name,
             password: hashed,
           });
-          return { id: user._id.toString(), name: user.name };
+          return { 
+            id: user._id.toString(), 
+            name: user.name,
+            email: user.email || `${user.name}@placeholder.com`
+          };
         }
 
-        const isValid = await bcrypt.compare(password, user.password);
+        const isValid = await bcryptjs.compare(password, user.password);
         if (!isValid) return null;
 
-        return { id: user._id.toString(), name: user.name };
+        return { 
+          id: user._id.toString(), 
+          name: user.name,
+          email: user.email || `${user.name}@placeholder.com`
+        };
       }
     })
   ],
