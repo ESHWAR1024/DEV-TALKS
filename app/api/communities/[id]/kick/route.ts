@@ -7,7 +7,7 @@ import { getServerSession } from 'next-auth';
 
 export async function POST(
   request: Request,
-  context: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
     await connectDB();
@@ -30,7 +30,9 @@ export async function POST(
       );
     }
 
-    const communityId = context.params.id;
+    // Await the params in Next.js 15+
+    const { id: communityId } = await context.params;
+    
     const body = await request.json();
     const { memberId } = body;
 
