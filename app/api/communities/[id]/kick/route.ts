@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { connectDB } from '../../../../lib/mongodb';
 import Community from '../../../../models/community';
 import User from '../../../../models/User';
@@ -6,7 +6,7 @@ import { authOptions } from '../../../auth/[...nextauth]/route';
 import { getServerSession } from 'next-auth';
 
 export async function POST(
-  request: Request,
+  request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
   try {
